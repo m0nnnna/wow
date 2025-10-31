@@ -1,0 +1,28 @@
+{
+  "bosses": [
+    {
+      "name": "Ragnaros",
+      "criteria_id": 3272
+    },
+    {
+      "name": "Emperor Dagran Thaurissan",
+      "criteria_id": 542
+    },
+    {
+      "name": "Baron Rivendare",
+      "criteria_id": 551
+    },
+    {
+      "name": "General Drakkisath",
+      "criteria_id": 3268
+    },
+    {
+      "name": "Scarlet Commander Mograine",
+      "criteria_id": 534
+    },
+    {
+      "name": "Edwin VanCleef",
+      "criteria_id": 3262
+    }
+  ]
+}

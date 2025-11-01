@@ -88,3 +88,12 @@ VALUES
 (@E,20452,0,0,0,0),(@E,13931,0,0,0,0),(@E,18254,0,0,0,0),(@E,21023,0,0,0,0),
 (@E,13813,0,0,0,0),(@E,13810,0,0,0,0),(@E,20748,0,0,0,0),(@E,20749,0,0,0,0),
 (@E,12404,0,0,0,0),(@E,18262,0,0,0,0);
+
+-- Add creature models for custom NPCs
+DELETE FROM creature_template_model WHERE CreatureID IN (629612, 629613);
+
+INSERT INTO creature_template_model 
+(`CreatureID`, `Idx`, `CreatureDisplayID`, `DisplayScale`, `Probability`, `VerifiedBuild`)
+VALUES
+(629612, 0, 4162, 1, 1, 12340),
+(629613, 0, 4162, 1, 1, 12340);

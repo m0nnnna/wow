@@ -87,7 +87,7 @@ INSERT INTO npc_vendor (entry,item,maxcount,incrtime,ExtendedCost,VerifiedBuild)
 VALUES 
 (@E,20452,0,0,0,0),(@E,13931,0,0,0,0),(@E,18254,0,0,0,0),(@E,21023,0,0,0,0),
 (@E,13813,0,0,0,0),(@E,13810,0,0,0,0),(@E,20748,0,0,0,0),(@E,20749,0,0,0,0),
-(@E,12404,0,0,0,0),(@E,18262,0,0,0,0);
+(@E,12404,0,0,0,0),(@E,16005,0,0,0,0),(@E,18262,0,0,0,0);
 
 -- Add creature models for custom NPCs
 DELETE FROM creature_template_model WHERE CreatureID IN (629612, 629613);

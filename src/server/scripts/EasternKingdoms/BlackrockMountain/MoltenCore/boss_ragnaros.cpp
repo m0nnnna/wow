@@ -102,7 +102,7 @@ enum Creatures
 
 enum Misc
 {
-    MAX_SON_OF_FLAME_COUNT                  = 4,
+    MAX_SON_OF_FLAME_COUNT                  = 8,
 
     // Event phase
     PHASE_INTRO                             = 1,        // Intro events with Majordomu
@@ -350,7 +350,7 @@ public:
                         {
                             Talk(SAY_WRATH);
                         }
-                        events.Repeat(25s);
+                        events.Repeat(100s);
                         break;
                     }
                     case EVENT_HAND_OF_RAGNAROS:
@@ -362,7 +362,7 @@ public:
                             _isKnockbackEmoteAllowed = false;
                             extraEvents.RescheduleEvent(EVENT_RESET_KNOCKBACK_EMOTE, 5s);
                         }
-                        events.Repeat(120s);
+                        events.Repeat(100s);
                         break;
                     }
                     case EVENT_LAVA_BURST:
@@ -401,7 +401,7 @@ public:
                                 extraEvents.RescheduleEvent(EVENT_RESET_KNOCKBACK_EMOTE, 5s);
                             }
                         }
-                        events.Repeat(100s, 200);
+                        events.Repeat(11s, 100s);
                         break;
                     }
                     case EVENT_SUBMERGE:
@@ -479,8 +479,8 @@ public:
         void ScheduleCombatEvents()
         {
             events.RescheduleEvent(EVENT_ERUPTION, 15s, PHASE_EMERGED, PHASE_EMERGED);
-            events.RescheduleEvent(EVENT_WRATH_OF_RAGNAROS, 140s, PHASE_EMERGED, PHASE_EMERGED);
-            events.RescheduleEvent(EVENT_HAND_OF_RAGNAROS, 120s, PHASE_EMERGED, PHASE_EMERGED);
+            events.RescheduleEvent(EVENT_WRATH_OF_RAGNAROS, 30s, PHASE_EMERGED, PHASE_EMERGED);
+            events.RescheduleEvent(EVENT_HAND_OF_RAGNAROS, 25s, PHASE_EMERGED, PHASE_EMERGED);
             events.RescheduleEvent(EVENT_LAVA_BURST, 10s, PHASE_EMERGED, PHASE_EMERGED);
             events.RescheduleEvent(EVENT_SUBMERGE, 180s, PHASE_EMERGED, PHASE_EMERGED);
             events.RescheduleEvent(EVENT_MIGHT_OF_RAGNAROS, 11s, PHASE_EMERGED, PHASE_EMERGED);

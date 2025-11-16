@@ -1,0 +1,1 @@
+DELETE FROM gameobject WHERE id = 177807 AND map = 469 LIMIT 20;

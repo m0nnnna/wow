@@ -2,21 +2,28 @@ import sys
 import json
 import struct
 import os
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTextEdit, QPushButton, QVBoxLayout, QWidget, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMainWindow, QTextEdit, QPushButton, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QLabel
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Armory Spell JSON to Spell DBC SQL Converter")
+        self.setWindowTitle("DBC Converter - Spell & Item Template to SQL")
+        
+        self.info_label = QLabel("Load a JSON file to convert (supports armory_spell and item_template)")
         self.text_edit = QTextEdit()
+        
         load_btn = QPushButton("Load JSON File")
         load_btn.clicked.connect(self.load_json)
+        
         generate_btn = QPushButton("Generate and Save SQL")
         generate_btn.clicked.connect(self.generate_sql)
+        
         layout = QVBoxLayout()
+        layout.addWidget(self.info_label)
         layout.addWidget(self.text_edit)
         layout.addWidget(load_btn)
         layout.addWidget(generate_btn)
+        
         central_widget = QWidget()
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
@@ -30,24 +37,33 @@ class MainWindow(QMainWindow):
     def generate_sql(self):
         try:
             data = json.loads(self.text_edit.toPlainText())
+            table_name = data.get('table', '')
             rows = data.get('rows', [])
+            
             if not rows:
                 raise ValueError("No rows found in JSON")
-            sql_content = []
-            for row in rows:
-                sql = self.convert_to_sql(row)
-                sql_content.append(sql)
-            file_name, _ = QFileDialog.getSaveFileName(self, "Save SQL File", "", "SQL Files (*.sql)")
+            
+            # Detect table type and convert accordingly
+            if table_name == 'armory_spell':
+                sql_content = [self.convert_spell_to_sql(row) for row in rows]
+                default_filename = "spell_dbc.sql"
+            elif table_name == 'item_template':
+                sql_content = [self.convert_item_to_sql(row) for row in rows]
+                default_filename = "item_dbc.sql"
+            else:
+                raise ValueError(f"Unknown table type: {table_name}. Supported: armory_spell, item_template")
+            
+            file_name, _ = QFileDialog.getSaveFileName(self, "Save SQL File", default_filename, "SQL Files (*.sql)")
             if file_name:
                 with open(file_name, 'w', encoding='utf-8') as f:
                     f.write('\n\n'.join(sql_content))
-                QMessageBox.information(self, "Success", f"SQL file saved to {file_name}")
+                QMessageBox.information(self, "Success", f"SQL file saved to {file_name}\nConverted {len(sql_content)} rows from {table_name}")
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 
     def _fix_mojibake(self, value):
         """Detect mojibake and set to empty string if unfixable; otherwise attempt fix."""
-        if not isinstance(value, str) or not value.strip() or 'Ã' not in value:
+        if not isinstance(value, str) or not value.strip() or 'Ãƒ' not in value:
             return value  # Empty or clean ASCII stays as-is
         
         # Quick check: if it's likely garbled (non-ASCII without valid UTF-8 feel), set to ""
@@ -74,7 +90,34 @@ class MainWindow(QMainWindow):
             print(f"Fix failed ({e}), setting to empty for: {value[:30]}...")
             return ""
 
-    def convert_to_sql(self, row):
+    def convert_item_to_sql(self, row):
+        """Convert item_template JSON to item_dbc SQL"""
+        # Mapping: JSON key -> DBC column
+        mapping = {
+            'entry': 'ID',
+            'class': 'ClassID',
+            'subclass': 'SubclassID',
+            'SoundOverrideSubclass': 'Sound_Override_Subclassid',
+            'Material': 'Material',
+            'displayid': 'DisplayInfoID',
+            'InventoryType': 'InventoryType',
+            'sheath': 'SheatheType'
+        }
+        
+        values = []
+        for json_key, dbc_col in mapping.items():
+            if json_key in row:
+                values.append(str(int(row[json_key])))
+            else:
+                values.append('0')  # Default value
+        
+        columns = ', '.join(f'`{col}`' for col in mapping.values())
+        values_str = ', '.join(values)
+        
+        return f"INSERT INTO `item_dbc` ({columns}) VALUES ({values_str});"
+
+    def convert_spell_to_sql(self, row):
+        """Convert armory_spell JSON to spell_dbc SQL"""
         # Mapping: JSON key -> (DBC column, type_hint)
         mapping = {
             'id': ('ID', 'int'),
@@ -219,7 +262,6 @@ class MainWindow(QMainWindow):
             'SpellName_zh_cn': ('Name_Lang_zhCN', 'str'),
             'SpellName_es_es': ('Name_Lang_esES', 'str'),
             'SpellName_ru_ru': ('Name_Lang_ruRU', 'str'),
-            # Add more if needed for numbered
             'SpellName_5': ('Name_Lang_enCN', 'str'),
             'SpellName_6': ('Name_Lang_enTW', 'str'),
             'SpellName_8': ('Name_Lang_esMX', 'str'),

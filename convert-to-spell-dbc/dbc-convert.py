@@ -2,15 +2,22 @@ import sys
 import json
 import struct
 import os
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTextEdit, QPushButton, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QLabel
+import re
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QTextEdit, QPushButton, 
+                             QVBoxLayout, QWidget, QFileDialog, QMessageBox, 
+                             QLabel, QHBoxLayout, QListWidget)
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DBC Converter - Spell & Item Template to SQL")
+        self.resize(900, 600)
         
         self.info_label = QLabel("Load a JSON file to convert (supports armory_spell and item_template)")
         self.text_edit = QTextEdit()
+        
+        # Buttons layout
+        button_layout = QHBoxLayout()
         
         load_btn = QPushButton("Load JSON File")
         load_btn.clicked.connect(self.load_json)
@@ -18,11 +25,17 @@ class MainWindow(QMainWindow):
         generate_btn = QPushButton("Generate and Save SQL")
         generate_btn.clicked.connect(self.generate_sql)
         
+        validate_btn = QPushButton("Validate & Fix SQL Files")
+        validate_btn.clicked.connect(self.validate_sql_files)
+        
+        button_layout.addWidget(load_btn)
+        button_layout.addWidget(generate_btn)
+        button_layout.addWidget(validate_btn)
+        
         layout = QVBoxLayout()
         layout.addWidget(self.info_label)
         layout.addWidget(self.text_edit)
-        layout.addWidget(load_btn)
-        layout.addWidget(generate_btn)
+        layout.addLayout(button_layout)
         
         central_widget = QWidget()
         central_widget.setLayout(layout)
@@ -61,38 +74,187 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 
-    def _fix_mojibake(self, value):
-        """Detect mojibake and set to empty string if unfixable; otherwise attempt fix."""
-        if not isinstance(value, str) or not value.strip() or 'Ãƒ' not in value:
-            return value  # Empty or clean ASCII stays as-is
+    def validate_sql_files(self):
+        """Open dialog to select and validate multiple SQL files"""
+        file_names, _ = QFileDialog.getOpenFileNames(
+            self, 
+            "Select SQL Files to Validate", 
+            "", 
+            "SQL Files (*.sql)"
+        )
         
-        # Quick check: if it's likely garbled (non-ASCII without valid UTF-8 feel), set to ""
-        if any(ord(c) > 127 for c in value) and len(value) > 20:  # Heuristic for suspicious length
-            print(f"Detected likely garbled string (len {len(value)}), setting to empty: {value[:30]}...")
-            return ""
+        if not file_names:
+            return
         
-        # Attempt robust fix: build bytes from latin-1 range, decode with replace
-        bytes_list = [ord(c) for c in value if ord(c) <= 255]
-        try:
-            fixed_bytes = bytes(bytes_list)
-            fixed = fixed_bytes.decode('utf-8', errors='replace')
-            # If fix introduces too many � (e.g., >5% of chars), treat as unfixable
-            replacement_count = fixed.count('�')
-            if replacement_count > len(fixed) * 0.05:
-                print(f"Fix introduced too many � ({replacement_count}/{len(fixed)}), setting to empty")
-                return ""
-            orig_len = len(value)
-            new_len = len(fixed)
-            if new_len < orig_len:
-                print(f"Fixed mojibake: original len {orig_len} -> fixed len {new_len}")
-            return fixed
-        except Exception as e:
-            print(f"Fix failed ({e}), setting to empty for: {value[:30]}...")
-            return ""
+        results = []
+        fixed_files = []
+        
+        for file_path in file_names:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Check if it's a spell_dbc file
+                if 'spell_dbc' in content.lower():
+                    fixed_content, issues = self.validate_and_fix_spell_sql(content)
+                    
+                    if issues:
+                        # Save the fixed version
+                        backup_path = file_path + ".backup"
+                        os.rename(file_path, backup_path)
+                        
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            f.write(fixed_content)
+                        
+                        fixed_files.append(os.path.basename(file_path))
+                        results.append(f"✓ Fixed: {os.path.basename(file_path)}\n  Issues: {', '.join(issues)}\n  Backup: {os.path.basename(backup_path)}")
+                    else:
+                        results.append(f"✓ Valid: {os.path.basename(file_path)} (no issues found)")
+                else:
+                    results.append(f"⚠ Skipped: {os.path.basename(file_path)} (not a spell_dbc file)")
+                    
+            except Exception as e:
+                results.append(f"✗ Error: {os.path.basename(file_path)} - {str(e)}")
+        
+        # Show results
+        result_text = "\n\n".join(results)
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle("Validation Results")
+        msg.setText(f"Validated {len(file_names)} file(s)\nFixed {len(fixed_files)} file(s)")
+        msg.setDetailedText(result_text)
+        msg.exec()
+
+    def validate_and_fix_spell_sql(self, sql_content):
+        """Validate and fix common issues in spell_dbc SQL"""
+        issues = []
+        
+        # Split by INSERT statements (handle multi-line statements)
+        statements = []
+        current_statement = []
+        
+        for line in sql_content.split('\n'):
+            if line.strip().startswith('INSERT'):
+                if current_statement:
+                    statements.append('\n'.join(current_statement))
+                current_statement = [line]
+            elif current_statement:
+                current_statement.append(line)
+            else:
+                statements.append(line)
+        
+        if current_statement:
+            statements.append('\n'.join(current_statement))
+        
+        fixed_statements = []
+        
+        for statement in statements:
+            if not statement.strip() or not 'INSERT' in statement:
+                fixed_statements.append(statement)
+                continue
+            
+            # Join all lines into one for processing
+            fixed_line = ' '.join(statement.split('\n'))
+            # Join all lines into one for processing
+            fixed_line = ' '.join(statement.split('\n'))
+            
+            # Fix 1: Clean up garbled language fields (non-English)
+            lang_fields = [
+                'Name_Lang_deDE', 'Name_Lang_frFR', 'Name_Lang_zhCN', 'Name_Lang_esES', 
+                'Name_Lang_ruRU', 'Name_Lang_enCN', 'Name_Lang_enTW', 'Name_Lang_esMX',
+                'Name_Lang_ptPT', 'Name_Lang_ptBR', 'Name_Lang_itIT', 'Name_Lang_enGB',
+                'Name_Lang_koKR', 'Name_Lang_zhTW', 'Name_Lang_Unk',
+                'NameSubtext_Lang_deDE', 'NameSubtext_Lang_frFR', 'NameSubtext_Lang_zhCN',
+                'NameSubtext_Lang_esES', 'NameSubtext_Lang_ruRU', 'NameSubtext_Lang_enCN',
+                'NameSubtext_Lang_enTW', 'NameSubtext_Lang_esMX', 'NameSubtext_Lang_ptPT',
+                'NameSubtext_Lang_ptBR', 'NameSubtext_Lang_itIT', 'NameSubtext_Lang_enGB',
+                'NameSubtext_Lang_koKR', 'NameSubtext_Lang_zhTW', 'NameSubtext_Lang_Unk',
+                'Description_Lang_deDE', 'Description_Lang_frFR', 'Description_Lang_zhCN',
+                'Description_Lang_esES', 'Description_Lang_ruRU', 'Description_Lang_enCN',
+                'Description_Lang_enTW', 'Description_Lang_esMX', 'Description_Lang_ptPT',
+                'Description_Lang_ptBR', 'Description_Lang_itIT', 'Description_Lang_enGB',
+                'Description_Lang_koKR', 'Description_Lang_zhTW', 'Description_Lang_Unk',
+                'AuraDescription_Lang_deDE', 'AuraDescription_Lang_frFR', 'AuraDescription_Lang_zhCN',
+                'AuraDescription_Lang_esES', 'AuraDescription_Lang_ruRU', 'AuraDescription_Lang_enCN',
+                'AuraDescription_Lang_enTW', 'AuraDescription_Lang_esMX', 'AuraDescription_Lang_ptPT',
+                'AuraDescription_Lang_ptBR', 'AuraDescription_Lang_itIT', 'AuraDescription_Lang_enGB',
+                'AuraDescription_Lang_koKR', 'AuraDescription_Lang_zhTW', 'AuraDescription_Lang_Unk'
+            ]
+            
+            # Extract the SET clause and the fields
+            if ' SET ' in fixed_line:
+                parts = fixed_line.split(' SET ', 1)
+                insert_part = parts[0] + ' SET '
+                set_clause = parts[1].rstrip(';').strip()
+                
+                # Parse existing field assignments
+                field_assignments = {}
+                # Split by comma but not inside quotes
+                current_field = ''
+                in_quotes = False
+                escape_next = False
+                
+                for char in set_clause:
+                    if escape_next:
+                        current_field += char
+                        escape_next = False
+                        continue
+                    
+                    if char == '\\':
+                        current_field += char
+                        escape_next = True
+                        continue
+                        
+                    if char == "'" and not escape_next:
+                        in_quotes = not in_quotes
+                        
+                    if char == ',' and not in_quotes:
+                        if '=' in current_field:
+                            field_name = current_field.split('=')[0].strip().strip('`')
+                            field_assignments[field_name] = current_field.strip()
+                        current_field = ''
+                    else:
+                        current_field += char
+                
+                # Don't forget the last field
+                if current_field and '=' in current_field:
+                    field_name = current_field.split('=')[0].strip().strip('`')
+                    field_assignments[field_name] = current_field.strip()
+                
+                # Fix garbled text in language fields
+                for field in lang_fields:
+                    if field in field_assignments:
+                        assignment = field_assignments[field]
+                        # Check if contains non-ASCII characters
+                        if any(ord(c) > 127 for c in assignment):
+                            field_assignments[field] = f"`{field}` = ''"
+                            if 'garbled_text' not in issues:
+                                issues.append('garbled_text')
+                
+                # Add missing language fields
+                for field in lang_fields:
+                    if field not in field_assignments:
+                        field_assignments[field] = f"`{field}` = ''"
+                        if 'missing_fields' not in issues:
+                            issues.append('missing_fields')
+                
+                # Rebuild the SQL statement with proper formatting
+                fixed_line = insert_part + ', \n'.join(field_assignments.values()) + ';'
+            
+            fixed_statements.append(fixed_line)
+        
+        return '\n\n'.join(fixed_statements), issues
+
+    def _is_clean_ascii(self, text):
+        """Check if text is clean ASCII or has garbled encoding"""
+        if not text:
+            return True
+        # If it contains lots of special UTF-8 chars, it's probably garbled
+        special_count = sum(1 for c in text if ord(c) > 127)
+        return special_count < len(text) * 0.3  # Less than 30% special chars
 
     def convert_item_to_sql(self, row):
         """Convert item_template JSON to item_dbc SQL"""
-        # Mapping: JSON key -> DBC column
         mapping = {
             'entry': 'ID',
             'class': 'ClassID',
@@ -109,7 +271,7 @@ class MainWindow(QMainWindow):
             if json_key in row:
                 values.append(str(int(row[json_key])))
             else:
-                values.append('0')  # Default value
+                values.append('0')
         
         columns = ', '.join(f'`{col}`' for col in mapping.values())
         values_str = ', '.join(values)
@@ -118,7 +280,6 @@ class MainWindow(QMainWindow):
 
     def convert_spell_to_sql(self, row):
         """Convert armory_spell JSON to spell_dbc SQL"""
-        # Mapping: JSON key -> (DBC column, type_hint)
         mapping = {
             'id': ('ID', 'int'),
             'Category': ('Category', 'int'),
@@ -257,56 +418,11 @@ class MainWindow(QMainWindow):
             'activeIconID': ('ActiveIconID', 'int'),
             'spellPriority': ('SpellPriority', 'int'),
             'SpellName_en_gb': ('Name_Lang_enUS', 'str'),
-            'SpellName_de_de': ('Name_Lang_deDE', 'str'),
-            'SpellName_fr_fr': ('Name_Lang_frFR', 'str'),
-            'SpellName_zh_cn': ('Name_Lang_zhCN', 'str'),
-            'SpellName_es_es': ('Name_Lang_esES', 'str'),
-            'SpellName_ru_ru': ('Name_Lang_ruRU', 'str'),
-            'SpellName_5': ('Name_Lang_enCN', 'str'),
-            'SpellName_6': ('Name_Lang_enTW', 'str'),
-            'SpellName_8': ('Name_Lang_esMX', 'str'),
-            'SpellName_10': ('Name_Lang_ptPT', 'str'),
-            'SpellName_11': ('Name_Lang_ptBR', 'str'),
-            'SpellName_12': ('Name_Lang_itIT', 'str'),
             'SpellNameFlag': ('Name_Lang_Mask', 'int'),
-            'Rank_1': ('NameSubtext_Lang_enUS', 'str'),
-            'Rank_2': ('NameSubtext_Lang_enGB', 'str'),
-            'Rank_fr_fr': ('NameSubtext_Lang_frFR', 'str'),
-            'Rank_zh_cn': ('NameSubtext_Lang_zhCN', 'str'),
-            'Rank_es_es': ('NameSubtext_Lang_esES', 'str'),
-            'Rank_ru_ru': ('NameSubtext_Lang_ruRU', 'str'),
-            'Rank_5': ('NameSubtext_Lang_enCN', 'str'),
-            'Rank_6': ('NameSubtext_Lang_enTW', 'str'),
-            'Rank_8': ('NameSubtext_Lang_esMX', 'str'),
-            'Rank_10': ('NameSubtext_Lang_ptPT', 'str'),
-            'Rank_11': ('NameSubtext_Lang_ptBR', 'str'),
-            'Rank_12': ('NameSubtext_Lang_itIT', 'str'),
             'RankFlags': ('NameSubtext_Lang_Mask', 'int'),
             'Description_en_gb': ('Description_Lang_enUS', 'str'),
-            'Description_de_de': ('Description_Lang_deDE', 'str'),
-            'Description_fr_fr': ('Description_Lang_frFR', 'str'),
-            'Description_zh_cn': ('Description_Lang_zhCN', 'str'),
-            'Description_es_es': ('Description_Lang_esES', 'str'),
-            'Description_ru_ru': ('Description_Lang_ruRU', 'str'),
-            'Description_5': ('Description_Lang_enCN', 'str'),
-            'Description_6': ('Description_Lang_enTW', 'str'),
-            'Description_8': ('Description_Lang_esMX', 'str'),
-            'Description_10': ('Description_Lang_ptPT', 'str'),
-            'Description_11': ('Description_Lang_ptBR', 'str'),
-            'Description_12': ('Description_Lang_itIT', 'str'),
             'DescriptionFlags': ('Description_Lang_Mask', 'int'),
             'ToolTip_1': ('AuraDescription_Lang_enUS', 'str'),
-            'ToolTip_de_de': ('AuraDescription_Lang_deDE', 'str'),
-            'Tooltip_fr_fr': ('AuraDescription_Lang_frFR', 'str'),
-            'Tooltip_zh_cn': ('AuraDescription_Lang_zhCN', 'str'),
-            'Tooltip_es_es': ('AuraDescription_Lang_esES', 'str'),
-            'Tooltip_ru_ru': ('AuraDescription_Lang_ruRU', 'str'),
-            'ToolTip_5': ('AuraDescription_Lang_enCN', 'str'),
-            'ToolTip_6': ('AuraDescription_Lang_enTW', 'str'),
-            'ToolTip_8': ('AuraDescription_Lang_esMX', 'str'),
-            'ToolTip_10': ('AuraDescription_Lang_ptPT', 'str'),
-            'ToolTip_11': ('AuraDescription_Lang_ptBR', 'str'),
-            'ToolTip_12': ('AuraDescription_Lang_itIT', 'str'),
             'ToolTipFlags': ('AuraDescription_Lang_Mask', 'int'),
             'ManaCostPercentage': ('ManaCostPct', 'int'),
             'StartRecoveryCategory': ('StartRecoveryCategory', 'int'),
@@ -348,26 +464,34 @@ class MainWindow(QMainWindow):
                 elif type_hint == 'float':
                     if isinstance(value, int):
                         # Handle packed float (e.g., 1065353216 -> 1.0)
-                        value = struct.unpack('f', struct.pack('I', value))[0]
+                        if value > 1000000 or (value >= 0 and value not in range(-100, 100)):
+                            try:
+                                value = struct.unpack('f', struct.pack('I', value))[0]
+                            except struct.error:
+                                value = float(value)
+                        else:
+                            value = float(value)
                     else:
                         value = float(value)
                     value_str = f"{value:.6f}" if value != int(value) else str(int(value))
                 elif type_hint == 'str':
-                    # Scan and clean garbled strings before escaping
-                    value = self._fix_mojibake(value)
-                    value_str = "'" + value.replace("'", "\\'").replace('\\', '\\\\') + "'"
+                    # Only keep clean English text, empty everything else
+                    if self._is_clean_ascii(value):
+                        value_str = "'" + value.replace("'", "\\'").replace('\\', '\\\\') + "'"
+                    else:
+                        value_str = "''"
                 sql_parts.append(f"`{dbc_col}` = {value_str}")
 
         # Set default for SpellClassMask_3 if not present
         if 'SpellClassMask_3' not in [p.split('=')[0].strip(' `') for p in sql_parts]:
             sql_parts.append("`SpellClassMask_3` = 0")
 
-        # Set all other language fields to ''
+        # Set all other language fields to '' (NOT from JSON data)
         all_lang_cols = [
             'Name_Lang_enGB', 'Name_Lang_koKR', 'Name_Lang_frFR', 'Name_Lang_deDE', 'Name_Lang_enCN', 'Name_Lang_zhCN',
             'Name_Lang_enTW', 'Name_Lang_zhTW', 'Name_Lang_esES', 'Name_Lang_esMX', 'Name_Lang_ruRU', 'Name_Lang_ptPT',
             'Name_Lang_ptBR', 'Name_Lang_itIT', 'Name_Lang_Unk',
-            'NameSubtext_Lang_enGB', 'NameSubtext_Lang_koKR', 'NameSubtext_Lang_frFR', 'NameSubtext_Lang_deDE', 'NameSubtext_Lang_enCN', 'NameSubtext_Lang_zhCN',
+            'NameSubtext_Lang_enUS', 'NameSubtext_Lang_enGB', 'NameSubtext_Lang_koKR', 'NameSubtext_Lang_frFR', 'NameSubtext_Lang_deDE', 'NameSubtext_Lang_enCN', 'NameSubtext_Lang_zhCN',
             'NameSubtext_Lang_enTW', 'NameSubtext_Lang_zhTW', 'NameSubtext_Lang_esES', 'NameSubtext_Lang_esMX', 'NameSubtext_Lang_ruRU', 'NameSubtext_Lang_ptPT',
             'NameSubtext_Lang_ptBR', 'NameSubtext_Lang_itIT', 'NameSubtext_Lang_Unk',
             'Description_Lang_enGB', 'Description_Lang_koKR', 'Description_Lang_frFR', 'Description_Lang_deDE', 'Description_Lang_enCN', 'Description_Lang_zhCN',
@@ -382,7 +506,17 @@ class MainWindow(QMainWindow):
             if col not in set_cols:
                 sql_parts.append(f"`{col}` = ''")
 
-        return "INSERT INTO `spell_dbc` SET " + ", \n".join(sql_parts) + ";"
+        return "INSERT INTO `spell_dbc` SET \n" + ", \n".join(sql_parts) + ";"
+
+    def _is_clean_ascii(self, text):
+        """Check if text is clean ASCII/UTF-8 or has garbled encoding"""
+        if not text:
+            return True
+        # If it contains lots of special UTF-8 chars like Ãƒ, it's probably garbled
+        if 'Ãƒ' in text or 'Ã‚' in text:
+            return False
+        special_count = sum(1 for c in text if ord(c) > 127)
+        return special_count < len(text) * 0.2  # Less than 20% special chars
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

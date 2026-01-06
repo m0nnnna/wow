@@ -33,7 +33,7 @@ local function LoadRates()
             receive_item = q:GetUInt32(3),
             receive_qty  = q:GetUInt32(4)
         }
-        print(string.format("[Item Exchange]   '%s' â %dx[%d] for %dx[%d]", 
+        print(string.format("[Item Exchange]   '%s' Ã¢ÂÂ %dx[%d] for %dx[%d]", 
             raw, 
             q:GetUInt32(2), q:GetUInt32(1), 
             q:GetUInt32(4), q:GetUInt32(3)))
@@ -110,7 +110,7 @@ local function ProcessMails()
         
         if not rate then
             print("[Item Exchange]   RESULT: Invalid exchange code")
-            print("[Item Exchange]   â Returning mail to sender")
+            print("[Item Exchange]   Ã¢ÂÂ Returning mail to sender")
             
             -- Mark as read so it gets returned to sender with items
             CharDBExecute("UPDATE mail SET checked = 1 WHERE id = " .. mail_id)
@@ -134,39 +134,61 @@ local function ProcessMails()
 
             if attached ~= rate.give_qty then
                 print("[Item Exchange]   RESULT: Wrong quantity")
-                print("[Item Exchange]   â Returning mail to sender")
+                print("[Item Exchange]   Ã¢ÂÂ Returning mail to sender")
                 
                 -- Mark as read so it gets returned to sender with items
                 CharDBExecute("UPDATE mail SET checked = 1 WHERE id = " .. mail_id)
             else
-                -- SUCCESS!
-                print("[Item Exchange]   RESULT: â SUCCESS! Processing exchange...")
-                
-                print(string.format("[Item Exchange]   â Sending %dx item [%d]", 
-                    rate.receive_qty, rate.receive_item))
+			-- SUCCESS!
+			print("[Item Exchange]   RESULT: â SUCCESS! Processing exchange...")
 
-                -- Send reward mail
-                if rate.receive_qty == 1 then
-                    SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, 1)
-                elseif rate.receive_qty == 2 then
-                    SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, 1, rate.receive_item, 1)
-                elseif rate.receive_qty == 3 then
-                    SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, 1, rate.receive_item, 1, rate.receive_item, 1)
-                elseif rate.receive_qty == 4 then
-                    SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, 1, rate.receive_item, 1, rate.receive_item, 1, rate.receive_item, 1)
-                elseif rate.receive_qty == 5 then
-                    SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, 1, rate.receive_item, 1, rate.receive_item, 1, rate.receive_item, 1, rate.receive_item, 1)
-                else
-                    -- For larger quantities, send as one stack
-                    SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, rate.receive_qty)
-                end
+			print(string.format("[Item Exchange]   â Sending %dx item [%d]", 
+				rate.receive_qty, rate.receive_item))
+
+			-- Send reward mail with proper stack handling
+			local remaining = rate.receive_qty
+			local stacks = {}
+			local MAX_STACK = 20  -- Most ores stack to 20
+
+			-- Calculate how many stacks we need
+			while remaining > 0 do
+				if remaining >= MAX_STACK then
+					table.insert(stacks, MAX_STACK)
+					remaining = remaining - MAX_STACK
+				else
+					table.insert(stacks, remaining)
+					remaining = 0
+				end
+			end
+
+			-- Build SendMail call with all stacks
+			if #stacks == 1 then
+				SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, stacks[1])
+			elseif #stacks == 2 then
+				SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, stacks[1], rate.receive_item, stacks[2])
+			elseif #stacks == 3 then
+				SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, stacks[1], rate.receive_item, stacks[2], rate.receive_item, stacks[3])
+			elseif #stacks == 4 then
+				SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, stacks[1], rate.receive_item, stacks[2], rate.receive_item, stacks[3], rate.receive_item, stacks[4])
+			elseif #stacks == 5 then
+				SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, stacks[1], rate.receive_item, stacks[2], rate.receive_item, stacks[3], rate.receive_item, stacks[4], rate.receive_item, stacks[5])
+			elseif #stacks == 6 then
+				SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, stacks[1], rate.receive_item, stacks[2], rate.receive_item, stacks[3], rate.receive_item, stacks[4], rate.receive_item, stacks[5], rate.receive_item, stacks[6])
+			elseif #stacks == 7 then
+				SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, stacks[1], rate.receive_item, stacks[2], rate.receive_item, stacks[3], rate.receive_item, stacks[4], rate.receive_item, stacks[5], rate.receive_item, stacks[6], rate.receive_item, stacks[7])
+			elseif #stacks == 8 then
+				SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, stacks[1], rate.receive_item, stacks[2], rate.receive_item, stacks[3], rate.receive_item, stacks[4], rate.receive_item, stacks[5], rate.receive_item, stacks[6], rate.receive_item, stacks[7], rate.receive_item, stacks[8])
+			else
+				print("[Item Exchange]   WARNING: Too many stacks needed (" .. #stacks .. "), max is 8 items per mail")
+				SendMail("Exchange Complete!", "Thank you! Trade successful.", sender, botGUID, 41, 0, 0, 0, rate.receive_item, stacks[1], rate.receive_item, stacks[2], rate.receive_item, stacks[3], rate.receive_item, stacks[4], rate.receive_item, stacks[5], rate.receive_item, stacks[6], rate.receive_item, stacks[7], rate.receive_item, stacks[8])
+			end
                 
                 -- Delete original mail and items
-                print("[Item Exchange]   â Deleting original mail")
+                print("[Item Exchange]   Ã¢ÂÂ Deleting original mail")
                 CharDBExecute("DELETE FROM mail_items WHERE mail_id = " .. mail_id)
                 CharDBExecute("DELETE FROM mail WHERE id = " .. mail_id)
 
-                print(string.format("[Item Exchange]   â Exchange complete for GUID %d!", sender))
+                print(string.format("[Item Exchange]   Ã¢ÂÂ Exchange complete for GUID %d!", sender))
             end
         end
     until not mails:NextRow()

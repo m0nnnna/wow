@@ -273,7 +273,7 @@ public:
                         _events.CancelEvent(EVENT_RAZOR_SPAWN);
                         break;
                     case IN_PROGRESS:
-                        _events.ScheduleEvent(EVENT_RAZOR_SPAWN, 140s);
+                        _events.ScheduleEvent(EVENT_RAZOR_SPAWN, 30s);
                         EggEvent = data;
                         EggCount = 0;
                         addsCount.fill(0);
@@ -347,7 +347,7 @@ public:
                     --addsCount[0];
                     if (EggEvent != DONE && !_events.HasTimeUntilEvent(EVENT_RAZOR_SPAWN))
                     {
-                        _events.ScheduleEvent(EVENT_RAZOR_SPAWN, 60s);
+                        _events.ScheduleEvent(EVENT_RAZOR_SPAWN, 80s);
                     }
                     break;
                 case NPC_BLACKWING_LEGIONAIRE:
@@ -378,7 +378,7 @@ public:
                         if (EggEvent == IN_PROGRESS)
                         {
                             bool spawnMoreAdds = true;
-                            for (uint8 i = urand(2, 5); i > 0; --i)
+                            for (uint8 i = urand(1, 3); i > 0; --i)
                             {
                                 uint32 mobEntry = Entry[urand(0, 2)];
                                 uint32 dragonkinsCount = addsCount[0];
@@ -413,7 +413,7 @@ public:
 
                             if (spawnMoreAdds)
                             {
-                                _events.ScheduleEvent(EVENT_RAZOR_SPAWN, 60s);
+                                _events.ScheduleEvent(EVENT_RAZOR_SPAWN, 25s);
                             }
                         }
                         break;

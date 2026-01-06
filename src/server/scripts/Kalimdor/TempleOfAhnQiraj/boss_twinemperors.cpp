@@ -96,24 +96,28 @@ struct boss_twinemperorsAI : public BossAI
         return instance->GetCreature(IAmVeklor() ? DATA_VEKNILASH : DATA_VEKLOR);
     }
 
-    void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType, SpellSchoolMask) override
-    {
-        if (attacker)
-        {
-            if (attacker->GetEntry() == NPC_VEKLOR || attacker->GetEntry() == NPC_VEKNILASH)
-            {
-                me->LowerPlayerDamageReq(damage);
-                return;
-            }
+	void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType, SpellSchoolMask) override
+	{
+		if (attacker)
+		{
+			if (attacker->GetEntry() == NPC_VEKLOR || attacker->GetEntry() == NPC_VEKNILASH)
+			{
+				me->LowerPlayerDamageReq(damage);
+				return;
+			}
 
-            if (Creature* twin = GetTwin())
-            {
-                float dmgPct = damage / (float)me->GetMaxHealth();
-                int32 actualDmg = dmgPct * twin->GetMaxHealth();
-                twin->CastCustomSpell(twin, SPELL_TWIN_EMPATHY, &actualDmg, nullptr, nullptr, true);
-            }
-        }
-    }
+			if (Creature* twin = GetTwin())
+			{
+				// Only share damage if twin is alive
+				if (twin->IsAlive())
+				{
+					float dmgPct = damage / (float)me->GetMaxHealth();
+					int32 actualDmg = dmgPct * twin->GetMaxHealth();
+					twin->CastCustomSpell(twin, SPELL_TWIN_EMPATHY, &actualDmg, nullptr, nullptr, true);
+				}
+			}
+		}
+	}
 
     void KilledUnit(Unit* victim) override
     {
@@ -146,12 +150,35 @@ struct boss_twinemperorsAI : public BossAI
 			}
 		}
 
-		// Only kill twin if NOT solo
 		if (!isSolo)
 		{
+			// Group mode: kill both twins together
 			if (Creature* twin = GetTwin())
 				if (twin->IsAlive())
 					Unit::Kill(me, twin);
+		}
+		else
+		{
+			// Solo mode: make sure the surviving twin is attackable and in combat
+			if (Creature* twin = GetTwin())
+			{
+				if (twin->IsAlive())
+				{
+					// Remove any immunity/passive states
+					twin->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE);
+					twin->SetImmuneToAll(false);
+					twin->SetReactState(REACT_AGGRESSIVE);
+					twin->SetControlled(false, UNIT_STATE_ROOT);
+					
+					// Make sure twin engages the killer
+					if (killer)
+					{
+						twin->SetInCombatWith(killer);
+						twin->AI()->AttackStart(killer);
+						twin->AddThreat(killer, 10000.0f);
+					}
+				}
+			}
 		}
 
 		Talk(SAY_DEATH);
@@ -257,7 +284,7 @@ struct boss_twinemperorsAI : public BossAI
 				twin->AI()->DoAction(ACTION_CANCEL_INTRO);
 		}
 
-		// NEW CODE: Check if this is a solo player
+		// Check if this is a solo player
 		bool isSolo = false;
 		if (who && who->IsPlayer())
 		{
@@ -293,7 +320,8 @@ struct boss_twinemperorsAI : public BossAI
 			{
 				if (Creature* twin = GetTwin())
 				{
-					if (me->IsWithinDist(twin, 60.f))
+					// Only heal brother if twin is alive and in combat
+					if (twin->IsAlive() && twin->IsInCombat() && me->IsWithinDist(twin, 60.f))
 						DoCastAOE(SPELL_HEAL_BROTHER, true);
 				}
 
@@ -334,7 +362,7 @@ struct boss_veknilash : public boss_twinemperorsAI
         scheduler.Schedule(14s, [this](TaskContext context)
             {
                 DoCastRandomTarget(SPELL_UPPERCUT, 0, me->GetMeleeReach(), true);
-                context.Repeat(4s, 15s);
+                context.Repeat(50s, 80s);
             })
             .Schedule(12s, [this](TaskContext context)
             {
@@ -346,7 +374,7 @@ struct boss_veknilash : public boss_twinemperorsAI
                 DoCastAOE(SPELL_MUTATE_BUG);
                 context.Repeat(10s, 20s);
             });
-    }
+    }  // <-- This closing brace was missing!
 };
 
 struct boss_veklor : public boss_twinemperorsAI
@@ -360,6 +388,20 @@ struct boss_veklor : public boss_twinemperorsAI
         boss_twinemperorsAI::JustEngagedWith(who);
 
         DoPlaySoundToSet(me, SOUND_VK_AGGRO);
+
+        // Check if solo mode
+        bool isSolo = false;
+        if (who && who->IsPlayer())
+        {
+            if (Group* group = who->ToPlayer()->GetGroup())
+            {
+                isSolo = (group->GetMembersCount() <= 1);
+            }
+            else
+            {
+                isSolo = true;
+            }
+        }
 
         scheduler.Schedule(4s, [this](TaskContext context)
             {
@@ -388,18 +430,30 @@ struct boss_veklor : public boss_twinemperorsAI
             {
                 if (me->SelectNearestPlayer(NOMINAL_MELEE_RANGE))
                     DoCastAOE(SPELL_ARCANE_BURST);
-                context.Repeat(7s, 12s);
-            })
-            .Schedule(30s, [this](TaskContext context)
-            {
-                DoCastSelf(SPELL_TWIN_TELEPORT_0);
-                context.Repeat(30s, 40s);
+                context.Repeat(50s, 80s);
             })
             .Schedule(5s, [this](TaskContext context)
             {
                 DoCastAOE(SPELL_EXPLODE_BUG);
                 context.Repeat(4500ms, 10s);
             });
+
+        // Only schedule teleport if NOT in solo mode
+        if (!isSolo)
+        {
+            scheduler.Schedule(30s, [this](TaskContext context)
+            {
+                // Double-check twin is still alive before teleporting
+                if (Creature* twin = GetTwin())
+                {
+                    if (twin->IsAlive() && twin->IsInCombat())
+                    {
+                        DoCastSelf(SPELL_TWIN_TELEPORT_0);
+                    }
+                }
+                context.Repeat(30s, 40s);
+            });
+        }
     }
 
     void SpellHit(Unit* /*caster*/, SpellInfo const* spellInfo) override
@@ -408,6 +462,10 @@ struct boss_veklor : public boss_twinemperorsAI
         {
             if (Creature* veknilash = GetTwin())
             {
+                // Only teleport if twin is alive and in combat
+                if (!veknilash->IsAlive() || !veknilash->IsInCombat())
+                    return;
+
                 DoCastSelf(SPELL_TWIN_TELEPORT_1, true);
                 me->SetControlled(true, UNIT_STATE_ROOT);
 

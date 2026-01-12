@@ -1,0 +1,183 @@
+#!/bin/bash
+# Management scripts for AzerothCore proxy
+
+BLOCKLIST_FILE="/etc/acore-proxy/blocklist.txt"
+CONN_LOG="/var/log/acore-proxy/connections.jsonl"
+
+# Ensure directories exist
+mkdir -p /etc/acore-proxy
+mkdir -p /var/log/acore-proxy
+touch "$BLOCKLIST_FILE"
+
+case "$1" in
+    block)
+        if [ -z "$2" ]; then
+            echo "Usage: $0 block <IP_ADDRESS>"
+            exit 1
+        fi
+        IP="$2"
+        if grep -q "^$IP$" "$BLOCKLIST_FILE" 2>/dev/null; then
+            echo "IP $IP is already blocked"
+        else
+            echo "$IP" >> "$BLOCKLIST_FILE"
+            echo "Blocked IP: $IP"
+            echo "Blocklist will reload within 60 seconds, or restart the proxy service"
+        fi
+        ;;
+    
+    unblock)
+        if [ -z "$2" ]; then
+            echo "Usage: $0 unblock <IP_ADDRESS>"
+            exit 1
+        fi
+        IP="$2"
+        if grep -q "^$IP$" "$BLOCKLIST_FILE" 2>/dev/null; then
+            sed -i "/^$IP$/d" "$BLOCKLIST_FILE"
+            echo "Unblocked IP: $IP"
+        else
+            echo "IP $IP was not in blocklist"
+        fi
+        ;;
+    
+    list-blocked)
+        echo "=== Blocked IPs ==="
+        if [ -s "$BLOCKLIST_FILE" ]; then
+            cat "$BLOCKLIST_FILE" | grep -v '^#' | grep -v '^$'
+        else
+            echo "No IPs currently blocked"
+        fi
+        ;;
+    
+    recent)
+        LINES="${2:-20}"
+        echo "=== Recent Connections (last $LINES) ==="
+        if [ -f "$CONN_LOG" ]; then
+            tail -n "$LINES" "$CONN_LOG" | jq -r '. | "\(.timestamp) - \(.client_ip):\(.client_port) -> \(.server) (\(.status)) - \(.bytes_sent) bytes sent, \(.bytes_received) bytes received"'
+        else
+            echo "No connection log found"
+        fi
+        ;;
+    
+    top-ips)
+        LINES="${2:-10}"
+        echo "=== Top $LINES Connecting IPs ==="
+        if [ -f "$CONN_LOG" ]; then
+            jq -r '.client_ip' "$CONN_LOG" 2>/dev/null | sort | uniq -c | sort -rn | head -n "$LINES"
+        else
+            echo "No connection log found"
+        fi
+        ;;
+    
+    watch)
+        echo "=== Watching live connections (Ctrl+C to stop) ==="
+        tail -f "$CONN_LOG" | while read line; do
+            echo "$line" | jq -r '. | "\(.timestamp) - \(.client_ip) -> \(.server) (\(.status))"'
+        done
+        ;;
+    
+    stats)
+        if [ ! -f "$CONN_LOG" ]; then
+            echo "No connection log found"
+            exit 1
+        fi
+        
+        echo "=== Connection Statistics ==="
+        echo ""
+        echo "Total connections:"
+        wc -l < "$CONN_LOG"
+        echo ""
+        echo "By status:"
+        jq -r '.status' "$CONN_LOG" 2>/dev/null | sort | uniq -c
+        echo ""
+        echo "By server:"
+        jq -r '.server' "$CONN_LOG" 2>/dev/null | sort | uniq -c
+        echo ""
+        echo "Blocked connections:"
+        grep -c '"status":"blocked"' "$CONN_LOG" 2>/dev/null || echo "0"
+        ;;
+    
+    search)
+        if [ -z "$2" ]; then
+            echo "Usage: $0 search <IP_ADDRESS>"
+            exit 1
+        fi
+        IP="$2"
+        echo "=== Connections from $IP ==="
+        if [ -f "$CONN_LOG" ]; then
+            grep "\"client_ip\":\"$IP\"" "$CONN_LOG" | jq -r '. | "\(.timestamp) - \(.server) (\(.status)) - \(.duration_seconds)s"'
+        else
+            echo "No connection log found"
+        fi
+        ;;
+    
+    install-service)
+        echo "Creating systemd service..."
+        cat > /etc/systemd/system/acore-proxy.service <<'EOF'
+[Unit]
+Description=AzerothCore TCP Proxy with IP Logging
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /usr/local/bin/acore-proxy.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        
+        # Copy the proxy script
+        if [ -f "./acore-proxy.py" ]; then
+            cp ./acore-proxy.py /usr/local/bin/acore-proxy.py
+            chmod +x /usr/local/bin/acore-proxy.py
+        else
+            echo "Error: acore-proxy.py not found in current directory"
+            exit 1
+        fi
+        
+        # Copy this management script
+        cp "$0" /usr/local/bin/acore-proxy-manage
+        chmod +x /usr/local/bin/acore-proxy-manage
+        
+        systemctl daemon-reload
+        systemctl enable acore-proxy
+        echo ""
+        echo "Service installed! Use these commands:"
+        echo "  sudo systemctl start acore-proxy    # Start the proxy"
+        echo "  sudo systemctl stop acore-proxy     # Stop the proxy"
+        echo "  sudo systemctl status acore-proxy   # Check status"
+        echo "  sudo systemctl restart acore-proxy  # Restart"
+        echo ""
+        echo "Management commands:"
+        echo "  acore-proxy-manage block <IP>"
+        echo "  acore-proxy-manage unblock <IP>"
+        echo "  acore-proxy-manage list-blocked"
+        echo "  acore-proxy-manage recent"
+        echo "  acore-proxy-manage watch"
+        ;;
+    
+    *)
+        echo "AzerothCore Proxy Management"
+        echo ""
+        echo "Usage: $0 <command> [arguments]"
+        echo ""
+        echo "Commands:"
+        echo "  block <IP>         - Block an IP address"
+        echo "  unblock <IP>       - Unblock an IP address"
+        echo "  list-blocked       - Show all blocked IPs"
+        echo "  recent [N]         - Show last N connections (default: 20)"
+        echo "  top-ips [N]        - Show top N connecting IPs (default: 10)"
+        echo "  watch              - Watch live connections"
+        echo "  stats              - Show connection statistics"
+        echo "  search <IP>        - Search connections from specific IP"
+        echo "  install-service    - Install as systemd service"
+        echo ""
+        echo "Examples:"
+        echo "  $0 block 1.2.3.4"
+        echo "  $0 recent 50"
+        echo "  $0 top-ips 20"
+        echo "  $0 search 1.2.3.4"
+        ;;
+esac

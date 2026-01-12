@@ -6,7 +6,7 @@ On your new proxy server:
 
 ```bash
 # Download the installer
-wget https://your-server/acore-proxy-install.sh
+wget https://github.com/m0nnnna/wow/blob/main/proxy/proxy_installer.sh
 
 # Make it executable
 chmod +x acore-proxy-install.sh

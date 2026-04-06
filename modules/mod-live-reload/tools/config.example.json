@@ -1,0 +1,44 @@
+{
+  "soap": {
+    "host": "127.0.0.1",
+    "port": 7878,
+    "username": "admin",
+    "password": "admin"
+  },
+  "mysql": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "root",
+    "password": "password",
+    "database": "acore_world"
+  },
+  "watch_dir": "./sql",
+  "reload_map": {
+    "item_template":                 ".rlive item",
+    "npc_vendor":                    ".rlive vendor",
+    "npc_trainer":                   ".rlive trainer",
+    "quest_template":                ".rlive quest",
+    "gossip_menu":                   ".rlive gossip",
+    "gossip_menu_option":            ".rlive gossip",
+    "smart_scripts":                 ".rlive script",
+    "conditions":                    ".rlive condition",
+    "pool_template":                 ".rlive pool",
+    "access_requirement":            ".rlive access",
+    "creature_loot_template":        ".rlive loot creature",
+    "fishing_loot_template":         ".rlive loot fishing",
+    "gameobject_loot_template":      ".rlive loot gameobject",
+    "skinning_loot_template":        ".rlive loot skinning",
+    "pickpocketing_loot_template":   ".rlive loot pickpocketing",
+    "mail_loot_template":            ".rlive loot mail",
+    "disenchant_loot_template":      ".rlive loot disenchant",
+    "prospecting_loot_template":     ".rlive loot prospecting",
+    "milling_loot_template":         ".rlive loot milling",
+    "areatrigger_teleport":          ".reload areatrigger_teleport",
+    "game_tele":                     ".reload game_tele",
+    "spell_dbc":                     ".reload spell_dbc",
+    "command":                       ".reload command",
+    "locales_item":                  ".reload locales_item",
+    "locales_creature":              ".reload locales_creature",
+    "locales_quest":                 ".reload locales_quest"
+  }
+}
